@@ -28,6 +28,7 @@ private:
     bool user_defined_timeout;
     uint32_t timeout_ms;
     uint32_t timeout_counter;
+    uint32_t Retry_count;
 protected:
     QTextStream ttyout;
     QTimer* poll_timer;
@@ -54,6 +55,7 @@ public:
     virtual ~QBaseSerialWitmotionSensorReader();
     virtual void RunPoll();
     virtual void Suspend();
+    void RetryConnection();
     void ValidatePackets(const bool value);
     void SetSensorPollInterval(const uint32_t ms);
     void SetSensorTimeout(const uint32_t ms);
@@ -64,6 +66,7 @@ class QAbstractWitmotionSensorController: public QObject
     Q_OBJECT
 private:
     QThread reader_thread;
+    
 protected:
     QString port_name;
     QSerialPort::BaudRate port_rate;

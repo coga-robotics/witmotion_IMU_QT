@@ -143,49 +143,84 @@ QBaseSerialWitmotionSensorReader::~QBaseSerialWitmotionSensorReader()
 
 void QBaseSerialWitmotionSensorReader::RunPoll()
 {
+    if (witmotion_port != nullptr && witmotion_port->isOpen()) {
+        ttyout << "Port is already open" << ENDL;
+        return;
+    }
+
     witmotion_port = new QSerialPort(port_name);
     witmotion_port->setBaudRate(port_rate, QSerialPort::Direction::AllDirections);
     witmotion_port->setStopBits(QSerialPort::OneStop);
     witmotion_port->setParity(QSerialPort::NoParity);
     witmotion_port->setFlowControl(QSerialPort::FlowControl::NoFlowControl);
     ttyout << "Opening device \"" << witmotion_port->portName() << "\" at " << witmotion_port->baudRate() << " baud" << ENDL;
-    if(!witmotion_port->open(QIODevice::ReadWrite))
-    {
-        emit Error("Error opening the port!");
+
+    if (!witmotion_port->open(QIODevice::ReadWrite)) {
+        emit Error("Error opening the port! Trying to reconnect...");
+        RetryConnection();
         return;
     }
+
     poll_timer = new QTimer(this);
     poll_timer->setTimerType(Qt::TimerType::PreciseTimer);
-    if(!user_defined_return_interval)
+    if (!user_defined_return_interval)
     {
         return_interval = (port_rate == QSerialPort::Baud9600) ? 50 : 30;
     }
     poll_timer->setInterval(return_interval);
-    if(!user_defined_timeout)
+    if (!user_defined_timeout)
     {
         timeout_ms = 3 * return_interval;
     }
+
     timer_connection = connect(poll_timer, &QTimer::timeout, this, &QBaseSerialWitmotionSensorReader::ReadData);
     config_connection = connect(poll_timer, &QTimer::timeout, this, &QBaseSerialWitmotionSensorReader::Configure);
     timeout_counter = 0;
+
     ttyout << "Instantiating timer at " << poll_timer->interval() << " ms" << ENDL;
     poll_timer->start();
+}
+void QBaseSerialWitmotionSensorReader::RetryConnection()
+{
+    if (witmotion_port->isOpen()) {
+        witmotion_port->close();
+    }
+
+    QTimer* retry_timer = new QTimer(this);
+    retry_timer->setInterval(100);  
+    connect(retry_timer, &QTimer::timeout, this, [this, retry_timer]() {
+        ttyout << "Attempting to reconnect..." << ENDL;
+
+        if (!witmotion_port->open(QIODevice::ReadWrite)) {
+            ttyout << "Reconnection failed. Will retry..." << ENDL;
+            return;
+        }
+
+        ttyout << "Reconnected successfully!" << ENDL;
+        retry_timer->stop();  
+        delete retry_timer; 
+        RunPoll();           
+    });
+    retry_timer->start();
 }
 
 void QBaseSerialWitmotionSensorReader::Suspend()
 {
-    disconnect(timer_connection);
-    disconnect(config_connection);
-    if(poll_timer != nullptr)
-        delete poll_timer;
-    if(witmotion_port != nullptr)
-    {
-        witmotion_port->close();
-        delete witmotion_port;
+    if (poll_timer != nullptr) {
+        poll_timer->stop();  
+        delete poll_timer;   
+        poll_timer = nullptr;
     }
+
+    if (witmotion_port != nullptr) {
+        if (witmotion_port->isOpen()) {
+            witmotion_port->close();  
+        }
+        delete witmotion_port; 
+        witmotion_port = nullptr;
+    }
+
     ttyout << "Suspending TTL connection, please emit RunPoll() again to proceed!" << ENDL;
-    poll_timer = nullptr;
-    witmotion_port = nullptr;
 }
 
 void QBaseSerialWitmotionSensorReader::ValidatePackets(const bool value)
